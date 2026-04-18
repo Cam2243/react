@@ -1,42 +1,93 @@
+import dotenv from "dotenv";
 import express from "express";
 import cors from "cors";
+import session from "express-session";
+import passport from "passport";
+import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 
+dotenv.config();
 
 const app = express();
 const PORT = 3000;
 
+const FRONTEND_URL = "https://obscure-space-giggle-jv65794j66phqgxr-5173.app.github.dev";
+const BACKEND_URL  = "https://obscure-space-giggle-jv65794j66phqgxr-3000.app.github.dev";
+
 app.use(cors({
-    origin: "*"
+  origin: FRONTEND_URL,
+  credentials: true
 }));
-app.use(cors());
+
 app.use(express.json());
 
+app.use(session({
+  secret: "secretkey",
+  resave: false,
+  saveUninitialized: true,
+  cookie: { secure: false, sameSite: "lax" }
+}));
+
+app.use(passport.initialize());
+app.use(passport.session());
+
+passport.serializeUser((user, done) => done(null, user));
+passport.deserializeUser((user, done) => done(null, user));
+
+passport.use(new GoogleStrategy({
+  clientID: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  callbackURL: `${BACKEND_URL}/auth/google/callback`
+}, (accessToken, refreshToken, profile, done) => {
+  return done(null, profile);
+}));
+
+// =====================
+// RUTAS DE AUTENTICACIÓN
+// =====================
+app.get("/", (req, res) => res.send("Servidor funcionando correctamente"));
+
+app.get("/auth/google",
+  passport.authenticate("google", { scope: ["profile", "email"] })
+);
+
+app.get("/auth/google/callback",
+  passport.authenticate("google", { failureRedirect: "/" }),
+  (req, res) => {
+    res.redirect(`${FRONTEND_URL}/dashboard`);
+  }
+);
+
+app.get("/auth/user", (req, res) => {
+  res.send(req.user || null);
+});
+
+function estaAutenticado(req, res, next) {
+  if (req.isAuthenticated()) return next();
+  res.status(401).json({ mensaje: "No autenticado" });
+}
+
+// =====================
+// RUTA DE PRUEBA
+// =====================
 app.get("/api/mensaje", (req, res) => {
   res.json({ texto: "Hola desde el backend " });
 });
 
 // =====================
-// JUEGO: ADIVINA EL NUMERO
+// JUEGO: ADIVINA EL NÚMERO
 // =====================
-
 let numeroSecreto = Math.floor(Math.random() * 100) + 1;
 
-app.get("/api/start", (req, res) => {
+app.get("/api/start", estaAutenticado, (req, res) => {
   numeroSecreto = Math.floor(Math.random() * 100) + 1;
-  res.json({
-    mensaje: "Nuevo juego iniciado. Adivina un número entre 1 y 100.",
-    numeroSecreto 
-  });
+  res.json({ mensaje: "Nuevo juego iniciado. Adivina un número entre 1 y 100." });
 });
 
-// Endpoint para adivinar
-app.post("/api/guess", (req, res) => {
+app.post("/api/guess", estaAutenticado, (req, res) => {
   const intento = req.body.numero;
-
   if (!intento && intento !== 0) {
     return res.status(400).json({ mensaje: "Debes enviar un número." });
   }
-
   if (intento < numeroSecreto) {
     res.json({ mensaje: "El número secreto es mayor 🔼" });
   } else if (intento > numeroSecreto) {
@@ -49,16 +100,13 @@ app.post("/api/guess", (req, res) => {
 // =====================
 // JUEGO: ADIVINA EL POKÉMON
 // =====================
-
 let pokemonSecreto = null;
 
-// Endpoint para iniciar/reiniciar el juego Pokémon
-app.get("/api/pokemon/start", async (req, res) => {
+app.get("/api/pokemon/start", estaAutenticado, async (req, res) => {
   try {
-    const idAleatorio = Math.floor(Math.random() * 151) + 1; // Gen 1
+    const idAleatorio = Math.floor(Math.random() * 151) + 1;
     const resPoke = await fetch(`https://pokeapi.co/api/v2/pokemon/${idAleatorio}`);
     const data = await resPoke.json();
-
     const resSpecies = await fetch(data.species.url);
     const species = await resSpecies.json();
 
@@ -89,30 +137,19 @@ app.get("/api/pokemon/start", async (req, res) => {
   }
 });
 
-// Endpoint para verificar el intento del jugador
-app.post("/api/pokemon/guess", (req, res) => {
+app.post("/api/pokemon/guess", estaAutenticado, (req, res) => {
   const intento = req.body.nombre?.toLowerCase().trim();
-
-  if (!intento) {
-    return res.status(400).json({ mensaje: "Debes enviar un nombre." });
-  }
-
-  if (!pokemonSecreto) {
-    return res.status(400).json({ mensaje: "Primero inicia el juego." });
-  }
+  if (!intento) return res.status(400).json({ mensaje: "Debes enviar un nombre." });
+  if (!pokemonSecreto) return res.status(400).json({ mensaje: "Primero inicia el juego." });
 
   const correcto = intento === pokemonSecreto.name;
-
   res.json({
     correcto,
     mensaje: correcto
       ? `¡Correcto! Es ${pokemonSecreto.name} 🎉`
       : `Incorrecto, el Pokémon era ${pokemonSecreto.name} 😢`,
     imagen: pokemonSecreto.image,
-    nombre: pokemonSecreto.name,
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Servidor backend corriendo en http://localhost:${PORT}`);
-});
+app.listen(PORT, () => console.log(`Servidor backend corriendo en http://localhost:${PORT}`));

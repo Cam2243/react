@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     allowedHosts: [
-      "https://bookish-umbrella-v94vrwgp6jjcx65r-5173.app.github.dev/"
+      "https://obscure-space-giggle-jv65794j66phqgxr-5173.app.github.dev/"
     ],
     proxy: {
       "/api": {
